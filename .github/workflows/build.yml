@@ -17,8 +17,16 @@ jobs:
           sudo apt-get clean
           sudo apt-get autoremove -y
 
-      - name: Checkout repository
+      - name: Checkout current repository
         uses: actions/checkout@v4
+
+      # 使用官方 Action 拉取 Orange Pi 编译工具，避免 Git 权限错误
+      - name: Checkout Orange Pi Build System
+        uses: actions/checkout@v4
+        with:
+          repository: orangepi-xunlong/orange-pi-build
+          path: orange-pi-build
+          fetch-depth: 1
 
       - name: Install dependencies
         run: |
@@ -30,17 +38,12 @@ jobs:
             python3 python3-distutils qemu-user-static binfmt-support \
             parted kpartx e2fsprogs u-boot-tools libpython2.7-dev
 
-      - name: Clone Orange Pi Build System
-        # 使用官方维护的脚本，因为它包含了 H618 的 pack 工具和 FEX 配置
-        run: |
-          git clone --depth=1 https://github.com/orangepi-xunlong/orange-pi-build.git
-
       - name: Build Firmware
         run: |
           cd orange-pi-build
-          # 关键参数：
-          # BOARD=orangepizero3 (针对 H618)
-          # BUILD_PHOENIX=yes (这会触发全志官方的打包逻辑，生成 .img 线刷包)
+          # 使用 sudo 执行，并传入环境变量
+          # BUILD_PHOENIX=yes 会生成 PhoenixUSBPro 专用的 .img
+          # 这里增加了几个参数确保在 CI 环境下不进入交互菜单
           sudo ./build.sh \
             BOARD=orangepizero3 \
             BRANCH=current \
@@ -49,17 +52,22 @@ jobs:
             BUILD_DESKTOP=no \
             KERNEL_CONFIGURE=no \
             BSP_FREEZE=yes \
-            BUILD_PHOENIX=yes
+            BUILD_PHOENIX=yes \
+            EXTER_COMMAND="none" 
 
       - name: Check Output
         run: |
-          ls -R orange-pi-build/output/
+          echo "Checking for Phoenix Image..."
+          ls -lh orange-pi-build/output/images/ || true
 
       - name: Upload Phoenix Image
+        uses: actions/checkout@v4
+        # 如果编译成功，上传 output/images 下的所有 .img 文件
+        # 线刷包通常文件名会包含 'phoenix' 字样
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: H618-Phoenix-Firmware
-          # 注意：线刷镜像通常位于 output/images/ 目录下，文件名包含 'phoenix' 或以 '.img' 结尾
           path: orange-pi-build/output/images/*.img
           retention-days: 7
 
