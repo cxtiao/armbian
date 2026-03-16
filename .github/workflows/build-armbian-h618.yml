@@ -1,7 +1,7 @@
 name: Build Armbian H618
 
 on:
-  workflow_dispatch:  # 手动触发
+  workflow_dispatch:
   push:
     branches:
       - main
@@ -10,6 +10,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 2048
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -19,7 +28,7 @@ jobs:
           sudo apt-get install -y git curl wget gcc g++ bc bison flex \
             make libssl-dev libncurses5-dev libncursesw5-dev \
             libreadline-dev ccache fakeroot libfile-fcntllock-perl \
-            lzop dosfstools device-tree-compiler python3 python3-distutils \
+            lzop dosfstools device-tree-compiler python3 \
             qemu-user-static binfmt-support
 
       - name: Clone Armbian build repository
@@ -33,13 +42,21 @@ jobs:
             BOARD=orangepizero3 \
             BRANCH=current \
             RELEASE=bookworm \
-            BUILD_MINIMAL=no \
+            BUILD_MINIMAL=yes \
             BUILD_DESKTOP=no \
             KERNEL_ONLY=no \
-            COMPRESS_OUTPUTIMAGE=sha,gzip
+            COMPRESS_OUTPUTIMAGE=gzip
+        timeout-minutes: 180
 
       - name: Upload Armbian image artifact
         uses: actions/upload-artifact@v4
         with:
           name: armbian-h618-output
           path: armbian-build/output/images/*
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: armbian-build/output/logs/*
