@@ -1,4 +1,4 @@
-name: Build Armbian H618
+name: Build H618
 
 on:
   workflow_dispatch:
