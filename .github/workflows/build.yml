@@ -1,4 +1,4 @@
-name: Build Armbian H618 Firmware
+name: Build H618 PhoenixUSBPro Firmware
 
 on:
   workflow_dispatch:
@@ -7,62 +7,65 @@ on:
       - main
 
 jobs:
-
   build:
-
     runs-on: ubuntu-22.04
 
     steps:
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          sudo apt-get autoremove -y
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Free disk space
+      - name: Install dependencies
         run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /opt/ghc
-          sudo docker system prune -af
+          sudo apt-get update
+          sudo apt-get install -y \
+            git curl wget gcc g++ bc bison flex make libssl-dev \
+            libncurses5-dev libncursesw5-dev libreadline-dev \
+            ccache fakeroot lzop dosfstools device-tree-compiler \
+            python3 python3-distutils qemu-user-static binfmt-support \
+            parted kpartx e2fsprogs u-boot-tools libpython2.7-dev
 
-      - name: Restore Armbian cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            cache
-            output/debs
-          key: armbian-cache-${{ runner.os }}
-
-      - name: Pull Armbian build container
+      - name: Clone Orange Pi Build System
+        # 使用官方维护的脚本，因为它包含了 H618 的 pack 工具和 FEX 配置
         run: |
-          docker pull ghcr.io/armbian/build:latest
+          git clone --depth=1 https://github.com/orangepi-xunlong/orange-pi-build.git
 
-      - name: Build Armbian
+      - name: Build Firmware
         run: |
-          docker run --rm --privileged \
-            -v ${{ github.workspace }}:/armbian \
-            ghcr.io/armbian/build:latest \
-            bash -c "
-              cd /armbian &&
-              ./compile.sh \
-                BOARD=orangepizero3 \
-                BRANCH=current \
-                RELEASE=bookworm \
-                BUILD_MINIMAL=yes \
-                BUILD_DESKTOP=no \
-                KERNEL_CONFIGURE=no
-            "
+          cd orange-pi-build
+          # 关键参数：
+          # BOARD=orangepizero3 (针对 H618)
+          # BUILD_PHOENIX=yes (这会触发全志官方的打包逻辑，生成 .img 线刷包)
+          sudo ./build.sh \
+            BOARD=orangepizero3 \
+            BRANCH=current \
+            RELEASE=bookworm \
+            BUILD_MINIMAL=yes \
+            BUILD_DESKTOP=no \
+            KERNEL_CONFIGURE=no \
+            BSP_FREEZE=yes \
+            BUILD_PHOENIX=yes
 
-      - name: Upload build artifact
+      - name: Check Output
+        run: |
+          ls -R orange-pi-build/output/
+
+      - name: Upload Phoenix Image
         uses: actions/upload-artifact@v4
         with:
-          name: armbian-h618-image
-          path: output/images/*
+          name: H618-Phoenix-Firmware
+          # 注意：线刷镜像通常位于 output/images/ 目录下，文件名包含 'phoenix' 或以 '.img' 结尾
+          path: orange-pi-build/output/images/*.img
+          retention-days: 7
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload Logs on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Armbian H618 Build ${{ github.run_number }}
-          files: output/images/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: build-logs
+          path: orange-pi-build/output/debug/*.log
