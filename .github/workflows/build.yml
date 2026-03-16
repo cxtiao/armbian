@@ -1,4 +1,4 @@
-name: Build H618 Armbian Phoenix Firmware
+name: Build Armbian H618 Firmware
 
 on:
   workflow_dispatch:
@@ -7,90 +7,62 @@ on:
       - main
 
 jobs:
+
   build:
+
     runs-on: ubuntu-22.04
 
     steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
-          sudo docker image prune -af
-          sudo apt-get clean
+          sudo docker system prune -af
 
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Restore Armbian cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache
+            output/debs
+          key: armbian-cache-${{ runner.os }}
 
-      - name: Install dependencies
+      - name: Pull Armbian build container
         run: |
-          sudo apt update
-          sudo apt install -y \
-            git curl wget \
-            gcc g++ make bc \
-            bison flex \
-            libssl-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            device-tree-compiler \
-            parted kpartx \
-            dosfstools \
-            e2fsprogs \
-            python3 \
-            xz-utils \
-            pv
+          docker pull ghcr.io/armbian/build:latest
 
-      - name: Clone Armbian build system
+      - name: Build Armbian
         run: |
-          git clone --depth=1 https://github.com/armbian/build.git
+          docker run --rm --privileged \
+            -v ${{ github.workspace }}:/armbian \
+            ghcr.io/armbian/build:latest \
+            bash -c "
+              cd /armbian &&
+              ./compile.sh \
+                BOARD=orangepizero3 \
+                BRANCH=current \
+                RELEASE=bookworm \
+                BUILD_MINIMAL=yes \
+                BUILD_DESKTOP=no \
+                KERNEL_CONFIGURE=no
+            "
 
-      - name: Disable Armbian QEMU setup
-        run: |
-          sed -i 's/enable_qemu/#enable_qemu/g' build/lib/functions/rootfs/qemu-static.sh || true
-
-      - name: Compile Armbian
-        run: |
-          cd build
-          ./compile.sh \
-            BOARD=orangepizero3 \
-            BRANCH=current \
-            RELEASE=bookworm \
-            BUILD_MINIMAL=yes \
-            BUILD_DESKTOP=no \
-            KERNEL_CONFIGURE=no \
-            CI=true
-        timeout-minutes: 240
-
-      - name: Extract root filesystem
-        run: |
-          mkdir work
-          cp build/output/images/*.img work/
-          cd work
-
-          IMG=$(ls *.img)
-
-          sudo losetup -Pf $IMG
-          LOOP=$(losetup -a | grep $IMG | cut -d: -f1)
-
-          mkdir rootfs
-          sudo mount ${LOOP}p2 rootfs
-
-          sudo tar czf rootfs.tar.gz -C rootfs .
-
-          sudo umount rootfs
-          sudo losetup -d $LOOP
-
-      - name: Clone sunxi pack tools
-        run: |
-          git clone https://github.com/longsleep/sunxi-pack-tools.git
-
-      - name: Build Phoenix firmware
-        run: |
-          chmod +x scripts/make-phoenix.sh
-          ./scripts/make-phoenix.sh
-
-      - name: Upload firmware
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: H618-phoenix-firmware
-          path: output/*
+          name: armbian-h618-image
+          path: output/images/*
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Armbian H618 Build ${{ github.run_number }}
+          files: output/images/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
