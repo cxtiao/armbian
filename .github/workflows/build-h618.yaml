@@ -1,4 +1,4 @@
-name: Build H618
+name: Build H618 Phoenix Firmware
 
 on:
   workflow_dispatch:
@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+
     steps:
       - name: Free up disk space
         run: |
@@ -30,11 +31,14 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git curl wget gcc g++ bc bison flex \
-            make libssl-dev libncurses5-dev libncursesw5-dev \
-            libreadline-dev ccache fakeroot libfile-fcntllock-perl \
-            lzop dosfstools device-tree-compiler python3 python3-distutils \
-            qemu-user-static binfmt-support
+          sudo apt-get install -y \
+          git curl wget gcc g++ bc bison flex \
+          make libssl-dev libncurses5-dev libncursesw5-dev \
+          libreadline-dev ccache fakeroot libfile-fcntllock-perl \
+          lzop dosfstools device-tree-compiler \
+          python3 python3-distutils \
+          qemu-user-static binfmt-support \
+          parted kpartx e2fsprogs
 
       - name: Clone Armbian build repository
         run: |
@@ -51,22 +55,67 @@ jobs:
             BUILD_DESKTOP=no \
             KERNEL_CONFIGURE=no \
             COMPRESS_OUTPUTIMAGE=gzip \
-            DESKTOP_ENVIRONMENT_CONFIG_NAME=no \
             BSPFREEZE=yes
         timeout-minutes: 240
 
-      - name: Check build output
-        if: always()
+      - name: Extract Armbian rootfs
         run: |
-          ls -lah armbian-build/output/images/ || echo "No images directory"
-          file armbian-build/output/images/* || echo "No files to check"
+          mkdir work
+          cd work
 
-      - name: Upload Armbian image artifact
-        if: success()
+          IMG=$(ls ../armbian-build/output/images/*.img.gz | head -n1)
+
+          echo "Found image: $IMG"
+
+          gunzip $IMG
+          IMG_FILE=$(ls *.img)
+
+          sudo losetup -Pf $IMG_FILE
+          LOOP=$(losetup -a | grep $IMG_FILE | cut -d: -f1)
+
+          mkdir rootfs
+          sudo mount ${LOOP}p2 rootfs
+
+          sudo tar czf rootfs.tar.gz -C rootfs .
+
+          sudo umount rootfs
+          sudo losetup -d $LOOP
+
+      - name: Clone sunxi pack tools
+        run: |
+          git clone https://github.com/longsleep/sunxi-pack-tools.git
+
+      - name: Create Phoenix image
+        run: |
+          mkdir phoenix
+          cp work/rootfs.tar.gz phoenix/
+
+          cd sunxi-pack-tools
+
+          mkdir -p out
+
+          echo "Packing Phoenix firmware..."
+
+          ./pack \
+            -c sun50iw9p1 \
+            -p linux \
+            -b armbian \
+            -d ../phoenix/rootfs.tar.gz || true
+
+          ls -lah out || true
+
+      - name: Upload Armbian image
         uses: actions/upload-artifact@v4
         with:
-          name: armbian-h618-output
+          name: armbian-img
           path: armbian-build/output/images/*
+          retention-days: 7
+
+      - name: Upload Phoenix firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: phoenix-firmware
+          path: sunxi-pack-tools/out/*
           retention-days: 7
 
       - name: Upload logs on failure
