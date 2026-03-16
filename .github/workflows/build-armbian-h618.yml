@@ -8,16 +8,21 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # ← 改这里！从 ubuntu-latest 改为 ubuntu-22.04
+    runs-on: ubuntu-22.04
     steps:
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 2048
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
+      - name: Free up disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          sudo apt-get autoclean
+          sudo apt-get autoremove -y
+          echo "Disk space after cleanup:"
+          df -h
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,14 +50,17 @@ jobs:
             BUILD_MINIMAL=yes \
             BUILD_DESKTOP=no \
             KERNEL_ONLY=no \
-            COMPRESS_OUTPUTIMAGE=gzip
-        timeout-minutes: 180
+            KERNEL_CONFIGURE=no \
+            COMPRESS_OUTPUTIMAGE=gzip \
+            SHARE_LOG=no
+        timeout-minutes: 240
 
       - name: Upload Armbian image artifact
         uses: actions/upload-artifact@v4
         with:
           name: armbian-h618-output
           path: armbian-build/output/images/*
+          retention-days: 7
 
       - name: Upload logs on failure
         if: failure()
@@ -60,3 +68,4 @@ jobs:
         with:
           name: build-logs
           path: armbian-build/output/logs/*
+          retention-days: 3
