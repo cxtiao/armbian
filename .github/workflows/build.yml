@@ -1,92 +1,90 @@
 name: Build H618 Armbian Phoenix Firmware
 
 on:
-workflow_dispatch:
-push:
-branches: [ main ]
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-build:
-runs-on: ubuntu-22.04
+  build:
+    runs-on: ubuntu-22.04
 
-```
-steps:
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo docker image prune -af
+          sudo apt-get clean
 
-  - name: Free disk space
-    run: |
-      sudo rm -rf /usr/share/dotnet
-      sudo rm -rf /usr/local/lib/android
-      sudo rm -rf /opt/ghc
-      sudo docker image prune -af
-      sudo apt-get clean
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  - name: Checkout repository
-    uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y \
+            git curl wget \
+            gcc g++ make bc \
+            bison flex \
+            libssl-dev \
+            libncurses5-dev \
+            libncursesw5-dev \
+            device-tree-compiler \
+            qemu-user-static \
+            parted kpartx \
+            dosfstools \
+            e2fsprogs \
+            python3
 
-  - name: Install dependencies
-    run: |
-      sudo apt update
-      sudo apt install -y \
-        git curl wget \
-        gcc g++ make bc \
-        bison flex \
-        libssl-dev \
-        libncurses5-dev \
-        libncursesw5-dev \
-        device-tree-compiler \
-        qemu-user-static \
-        parted kpartx \
-        dosfstools \
-        e2fsprogs \
-        python3
+      - name: Clone Armbian build system
+        run: |
+          git clone --depth=1 https://github.com/armbian/build.git
 
-  - name: Clone Armbian build system
-    run: |
-      git clone --depth=1 https://github.com/armbian/build.git
+      - name: Compile Armbian
+        run: |
+          cd build
+          ./compile.sh \
+            BOARD=orangepizero3 \
+            BRANCH=current \
+            RELEASE=bookworm \
+            BUILD_MINIMAL=yes \
+            BUILD_DESKTOP=no \
+            KERNEL_CONFIGURE=no
+        timeout-minutes: 240
 
-  - name: Compile Armbian
-    run: |
-      cd build
-      ./compile.sh \
-        BOARD=orangepizero3 \
-        BRANCH=current \
-        RELEASE=bookworm \
-        BUILD_MINIMAL=yes \
-        BUILD_DESKTOP=no \
-        KERNEL_CONFIGURE=no
-    timeout-minutes: 240
+      - name: Extract root filesystem
+        run: |
+          mkdir work
+          cp build/output/images/*.img work/
+          cd work
 
-  - name: Extract root filesystem
-    run: |
-      mkdir work
-      cp build/output/images/*.img work/
-      cd work
+          IMG=$(ls *.img)
 
-      IMG=$(ls *.img)
+          sudo losetup -Pf $IMG
+          LOOP=$(losetup -a | grep $IMG | cut -d: -f1)
 
-      sudo losetup -Pf $IMG
-      LOOP=$(losetup -a | grep $IMG | cut -d: -f1)
+          mkdir rootfs
+          sudo mount ${LOOP}p2 rootfs
 
-      mkdir rootfs
-      sudo mount ${LOOP}p2 rootfs
+          sudo tar czf rootfs.tar.gz -C rootfs .
 
-      sudo tar czf rootfs.tar.gz -C rootfs .
+          sudo umount rootfs
+          sudo losetup -d $LOOP
 
-      sudo umount rootfs
-      sudo losetup -d $LOOP
+      - name: Clone sunxi pack tools
+        run: |
+          git clone https://github.com/longsleep/sunxi-pack-tools.git
 
-  - name: Clone sunxi pack tools
-    run: |
-      git clone https://github.com/longsleep/sunxi-pack-tools.git
+      - name: Build Phoenix firmware
+        run: |
+          chmod +x scripts/make-phoenix.sh
+          ./scripts/make-phoenix.sh
 
-  - name: Build Phoenix firmware
-    run: |
-      chmod +x scripts/make-phoenix.sh
-      ./scripts/make-phoenix.sh
-
-  - name: Upload firmware
-    uses: actions/upload-artifact@v4
-    with:
-      name: H618-phoenix-firmware
-      path: output/*
-```
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: H618-phoenix-firmware
+          path: output/*
