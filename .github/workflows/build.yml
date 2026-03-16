@@ -33,7 +33,6 @@ jobs:
             libncurses5-dev \
             libncursesw5-dev \
             device-tree-compiler \
-            qemu-user-static \
             parted kpartx \
             dosfstools \
             e2fsprogs \
