@@ -9,24 +9,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    # 添加权限声明，防止一些 API 访问限制
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - name: Free up disk space
+      - name: Maximize build space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          # 深度清理：GitHub 默认环境只有不到 20G，全志编译需要更多
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /var/lib/docker
           sudo apt-get clean
           sudo apt-get autoremove -y
+          df -h
 
       - name: Checkout current repository
         uses: actions/checkout@v4
-
-      # 拉取 Orange Pi 编译工具
-      - name: Checkout Orange Pi Build System
-        uses: actions/checkout@v4
-        with:
-          repository: orangepi-xunlong/orange-pi-build
-          path: orange-pi-build
-          fetch-depth: 1
 
       - name: Install dependencies
         run: |
@@ -38,10 +36,18 @@ jobs:
             python3 python3-distutils qemu-user-static binfmt-support \
             parted kpartx e2fsprogs u-boot-tools libpython2.7-dev
 
+      - name: Clone Orange Pi Build System
+        run: |
+          # 使用 --progress 观察进度，并明确指定 https 路径
+          # 添加 git 配置防止因环境问题弹出交互提示
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git clone --depth=1 https://github.com/orangepi-xunlong/orange-pi-build.git
+
       - name: Build Firmware
         run: |
           cd orange-pi-build
-          # BUILD_PHOENIX=yes 会触发全志专用的打包脚本生成 .img 线刷包
+          # 关键：BUILD_PHOENIX=yes 
+          # 注意：如果是 H618，Board 必须是 orangepizero3
           sudo ./build.sh \
             BOARD=orangepizero3 \
             BRANCH=current \
@@ -55,15 +61,15 @@ jobs:
 
       - name: Check Output
         run: |
-          echo "Checking for images in output directory..."
-          ls -R orange-pi-build/output/images/ || true
+          echo "Listing all generated images..."
+          ls -lh orange-pi-build/output/images/ || true
 
       - name: Upload Phoenix Image
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: H618-Phoenix-Firmware
-          # 匹配所有生成的 .img 文件（包含线刷包和常规包）
+          # 注意：Phoenix 格式通常是 .img 结尾且体积较大
           path: orange-pi-build/output/images/*.img
           retention-days: 7
 
