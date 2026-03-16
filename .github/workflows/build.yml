@@ -20,7 +20,7 @@ jobs:
       - name: Checkout current repository
         uses: actions/checkout@v4
 
-      # 使用官方 Action 拉取 Orange Pi 编译工具，避免 Git 权限错误
+      # 拉取 Orange Pi 编译工具
       - name: Checkout Orange Pi Build System
         uses: actions/checkout@v4
         with:
@@ -41,9 +41,7 @@ jobs:
       - name: Build Firmware
         run: |
           cd orange-pi-build
-          # 使用 sudo 执行，并传入环境变量
-          # BUILD_PHOENIX=yes 会生成 PhoenixUSBPro 专用的 .img
-          # 这里增加了几个参数确保在 CI 环境下不进入交互菜单
+          # BUILD_PHOENIX=yes 会触发全志专用的打包脚本生成 .img 线刷包
           sudo ./build.sh \
             BOARD=orangepizero3 \
             BRANCH=current \
@@ -53,21 +51,19 @@ jobs:
             KERNEL_CONFIGURE=no \
             BSP_FREEZE=yes \
             BUILD_PHOENIX=yes \
-            EXTER_COMMAND="none" 
+            EXTER_COMMAND="none"
 
       - name: Check Output
         run: |
-          echo "Checking for Phoenix Image..."
-          ls -lh orange-pi-build/output/images/ || true
+          echo "Checking for images in output directory..."
+          ls -R orange-pi-build/output/images/ || true
 
       - name: Upload Phoenix Image
-        uses: actions/checkout@v4
-        # 如果编译成功，上传 output/images 下的所有 .img 文件
-        # 线刷包通常文件名会包含 'phoenix' 字样
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: H618-Phoenix-Firmware
+          # 匹配所有生成的 .img 文件（包含线刷包和常规包）
           path: orange-pi-build/output/images/*.img
           retention-days: 7
 
