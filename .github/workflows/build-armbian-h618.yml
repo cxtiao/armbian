@@ -49,13 +49,18 @@ jobs:
             RELEASE=bookworm \
             BUILD_MINIMAL=yes \
             BUILD_DESKTOP=no \
-            KERNEL_ONLY=no \
             KERNEL_CONFIGURE=no \
-            COMPRESS_OUTPUTIMAGE=gzip \
-            SHARE_LOG=no
+            COMPRESS_OUTPUTIMAGE=gzip
         timeout-minutes: 240
 
+      - name: Check build output
+        if: always()
+        run: |
+          ls -lah armbian-build/output/images/ || echo "No images directory"
+          du -sh armbian-build/output/* || echo "No output"
+
       - name: Upload Armbian image artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: armbian-h618-output
